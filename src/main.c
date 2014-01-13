@@ -47,12 +47,12 @@
 
 static void led_set_status(bool state)
 {
-	palWritePad(GPIO_PORT_LED_STATUS, GPIO_PIN_LED_STATUS, !state);
+	palWritePad(GPIO_PORT_LED_STATUS, GPIO_PIN_LED_STATUS, state);
 }
 
 static void led_set_error(bool state)
 {
-	palWritePad(GPIO_PORT_LED_ERROR, GPIO_PIN_LED_ERROR, !state);
+	palWritePad(GPIO_PORT_LED_ERROR, GPIO_PIN_LED_ERROR, state);
 }
 
 void application_halt_hook(void)

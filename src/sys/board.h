@@ -38,7 +38,7 @@
 #include <assert.h>
 #define assert_param(x) assert(x)
 
-#define STM32_HSECLK            8000000
+#define STM32_HSECLK            24000000
 
 #define STM32F10X_MD
 
