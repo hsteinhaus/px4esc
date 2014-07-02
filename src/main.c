@@ -44,6 +44,7 @@
 #include <console.h>
 #include <watchdog.h>
 #include <motor/motor.h>
+#include <motor/realtime/adc.h>
 
 void application_halt_hook(void)
 {
@@ -156,6 +157,9 @@ int main(void)
 #endif
 
 		chThdYield();
+
+		sleep(1);
+		lowsyslog("%f\n", motor_adc_convert_temperature(motor_adc_get_last_sample().temperature));
 	}
 
 	return 0;

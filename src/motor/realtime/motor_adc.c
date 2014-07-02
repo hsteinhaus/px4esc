@@ -37,6 +37,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <stm32f10x.h>
+#include <config/config.h>
 #include "internal.h"
 #include "adc.h"
 #include "pwm.h"
@@ -63,10 +64,17 @@ const int MOTOR_ADC_SYNC_ADVANCE_NANOSEC = 0;
 const int MOTOR_ADC_SAMPLE_WINDOW_NANOSEC = SAMPLE_DURATION_NANOSEC * NUM_SAMPLES_PER_ADC;
 
 
-static float _shunt_resistance = 0;
+static float _shunt_resistance_ohm;
+static float _temperature_cal_v25;
+static float _temperature_cal_slope_vc;
 
 static uint32_t _adc1_2_dma_buffer[NUM_SAMPLES_PER_ADC];
 static struct motor_adc_sample _sample;
+
+
+CONFIG_PARAM_FLOAT("current_shunt_mohm",         5.0,   0.1,   100.0)
+CONFIG_PARAM_FLOAT("temperature_cal_v25",        1.43,  1.34,  1.52)
+CONFIG_PARAM_FLOAT("temperature_cal_slope_mvc",  4.3,   4.0,   4.6)
 
 
 __attribute__((optimize(3)))
@@ -94,10 +102,25 @@ CH_FAST_IRQ_HANDLER(ADC1_2_IRQHandler)
 #undef SMPLADC1
 #undef SMPLADC2
 
+	/*
+	 * Invoke the callback as soon as the hard real time data was updated
+	 * Non-realtime measurements are delayed by 1 sample
+	 * This allows to reduce delay for hard real time data
+	 */
 	motor_adc_sample_callback(&_sample);
 
-	// TODO: check if the current/voltage/temperature channels need to be sampled
+	/*
+	 * Update the temperature - the conversion was triggered automatically right after the
+	 * regular group conversion was finished
+	 */
+	_sample.temperature = ADC1->JDR1;
 
+	/*
+	 * Reset IRQ flags
+	 * HACK: When injected channel conversion is finished, another IRQ will be generated
+	 *       which we don't want. However, this IRQ is expected to be generated before we
+	 *       leave this handler, so we reset its flag now.
+	 */
 	ADC1->SR = 0;         // Reset the IRQ flags
 	TESTPAD_CLEAR(GPIO_PORT_TEST_ADC, GPIO_PIN_TEST_ADC);
 }
@@ -173,11 +196,25 @@ static void enable(void)
 		ADC_SQR3_SQ6_1;
 	ADC2->SQR2 = ADC_SQR2_SQ7_2 | ADC_SQR2_SQ7_0;
 
-	// SMPR registers are not configured because they have right values by default
+	/*
+	 * Sample time config
+	 * All real time channels are configured at fastest sampling time - 1.5 clock cycles.
+	 * Internal temperature sensor sampling time is lower than recommended because of the timing restrictions.
+	 */
+	ADC1->SMPR1 = 0;
+	ADC1->SMPR2 = 0;
+
+	ADC2->SMPR1 = 0;
+	ADC2->SMPR2 = 0;
+
+	/*
+	 * Injected channels
+	 */
+	ADC1->JSQR = ADC_JSQR_JSQ4_4;  // Internal temperature sensor
 
 	// ADC initialization
-	ADC1->CR1 = ADC_CR1_DUALMOD_1 | ADC_CR1_DUALMOD_2 | ADC_CR1_SCAN | ADC_CR1_EOCIE;
-	ADC1->CR2 = ADC_CR2_ADON | ADC_CR2_EXTTRIG | MOTOR_ADC1_2_TRIGGER | ADC_CR2_DMA;
+	ADC1->CR1 = ADC_CR1_DUALMOD_1 | ADC_CR1_DUALMOD_2 | ADC_CR1_SCAN | ADC_CR1_EOCIE | ADC_CR1_JAUTO;
+	ADC1->CR2 = ADC_CR2_ADON | ADC_CR2_EXTTRIG | MOTOR_ADC1_2_TRIGGER | ADC_CR2_DMA | ADC_CR2_TSVREFE;
 
 	ADC2->CR1 = ADC_CR1_DUALMOD_1 | ADC_CR1_DUALMOD_2 | ADC_CR1_SCAN;
 	ADC2->CR2 = ADC_CR2_ADON | ADC_CR2_EXTTRIG | ADC_CR2_EXTSEL_0 | ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_2;
@@ -188,9 +225,11 @@ static void enable(void)
 	chSysEnable();
 }
 
-int motor_adc_init(float shunt_resistance)
+int motor_adc_init(void)
 {
-	_shunt_resistance = shunt_resistance;
+	_shunt_resistance_ohm     = config_get("current_shunt_mohm") / 1000.F;
+	_temperature_cal_v25      = config_get("temperature_cal_v25");
+	_temperature_cal_slope_vc = config_get("temperature_cal_slope_mvc") / 1000.F;
 
 	chSysDisable();
 
@@ -244,6 +283,13 @@ float motor_adc_convert_input_current(int raw)
 	// http://www.diodes.com/datasheets/ZXCT1051.pdf
 	const float vout = raw * (ADC_REF_VOLTAGE / (float)(1 << ADC_RESOLUTION));
 	const float vsense = vout / 10;
-	const float iload = vsense / _shunt_resistance;
+	const float iload = vsense / _shunt_resistance_ohm;
 	return iload;
+}
+
+float motor_adc_convert_temperature(int raw)
+{
+	const float v = raw * (ADC_REF_VOLTAGE / (float)(1 << ADC_RESOLUTION));
+	const float degc = ((_temperature_cal_v25 - v) / _temperature_cal_slope_vc) + 25.F;
+	return degc;
 }

@@ -51,10 +51,11 @@ struct motor_adc_sample
     int phase_values[3];
     int input_voltage;
     int input_current;
+    int temperature;
 };
 
 
-int motor_adc_init(float shunt_resistance);
+int motor_adc_init(void);
 
 void motor_adc_enable_from_isr(void);
 void motor_adc_disable_from_isr(void);
@@ -63,6 +64,7 @@ struct motor_adc_sample motor_adc_get_last_sample(void);
 
 float motor_adc_convert_input_voltage(int raw);
 float motor_adc_convert_input_current(int raw);
+float motor_adc_convert_temperature(int raw);
 
 /**
  * No OS API can be used from this callback!
