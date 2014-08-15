@@ -33,6 +33,8 @@
  ****************************************************************************/
 
 #include "esc_controller.hpp"
+#include <uavcan/equipment/esc/PingCommand.hpp>
+#include <uavcan/equipment/esc/PingResponse.hpp>
 #include <uavcan/equipment/esc/RawCommand.hpp>
 #include <uavcan/equipment/esc/RPMCommand.hpp>
 #include <uavcan/equipment/esc/Status.hpp>
@@ -46,6 +48,7 @@ namespace
 {
 
 uavcan::Publisher<uavcan::equipment::esc::Status>* pub_status;
+uavcan::Publisher<uavcan::equipment::esc::PingResponse>* pub_ping;
 
 unsigned self_index;
 unsigned command_ttl_ms;
@@ -54,6 +57,21 @@ float max_dc_to_start;
 CONFIG_PARAM_INT("uavcan_esc_index",             0,    0,    15)
 CONFIG_PARAM_INT("uavcan_esc_command_ttl_ms",    200,  100,  5000)
 CONFIG_PARAM_FLOAT("uavcan_esc_max_dc_to_start", 0.1,  0.01, 1.0)
+
+void cb_ping_command(const uavcan::ReceivedDataStructure<uavcan::equipment::esc::PingCommand>& msg)
+{
+	uint8_t index = msg.index;
+	if (index != self_index) return;
+
+	uint64_t ts = msg.timestamp;
+        uavcan::equipment::esc::PingResponse resp;
+
+        resp.index = self_index;
+        resp.timestamp = ts;
+
+	pub_ping->broadcast(resp);
+	printf("ping\n");
+}
 
 
 void cb_raw_command(const uavcan::ReceivedDataStructure<uavcan::equipment::esc::RawCommand>& msg)
@@ -118,6 +136,7 @@ int init_esc_controller(uavcan::INode& node)
 {
 	static uavcan::Subscriber<uavcan::equipment::esc::RawCommand> sub_raw_command(node);
 	static uavcan::Subscriber<uavcan::equipment::esc::RPMCommand> sub_rpm_command(node);
+	static uavcan::Subscriber<uavcan::equipment::esc::PingCommand> sub_ping_command(node);
 	static uavcan::Timer timer_10hz(node);
 
 	self_index = config_get("uavcan_esc_index");
@@ -125,6 +144,11 @@ int init_esc_controller(uavcan::INode& node)
 	max_dc_to_start = config_get("uavcan_esc_max_dc_to_start");
 
 	int res = 0;
+
+	res = sub_ping_command.start(cb_ping_command);
+	if (res != 0) {
+		return res;
+	}
 
 	res = sub_raw_command.start(cb_raw_command);
 	if (res != 0) {
@@ -141,6 +165,12 @@ int init_esc_controller(uavcan::INode& node)
 	if (res != 0) {
 		return res;
 	}
+
+	pub_ping = new uavcan::Publisher<uavcan::equipment::esc::PingResponse>(node);
+        res = pub_ping->init();
+        if (res != 0) {
+                return res;
+        }
 
 	timer_10hz.setCallback(&cb_10Hz);
 	timer_10hz.startPeriodic(uavcan::MonotonicDuration::fromMSec(100));

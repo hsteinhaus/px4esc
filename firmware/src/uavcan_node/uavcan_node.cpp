@@ -55,7 +55,7 @@ uavcan_stm32::CanInitHelper<> can;
 
 auto node_status_code = uavcan::protocol::NodeStatus::STATUS_INITIALIZING;
 
-CONFIG_PARAM_INT("can_bitrate",    1000000, 20000, 1000000)
+CONFIG_PARAM_INT("can_bitrate",    10000000, 20000, 10000000)
 CONFIG_PARAM_INT("uavcan_node_id", 0,       0,     125)      ///< 0 for Passive Mode (default)
 
 Node& get_node()
